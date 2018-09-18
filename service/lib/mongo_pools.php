@@ -29,15 +29,10 @@ class evxMongoPools extends evxMongo {
         self::$oInstance = new evxMongoPools($aSettings);
     }
 
-    /**
-     * Constructor.
-     *
-     * @param array $aSettings
-     * @throws \Exception
-     */
-    protected function __construct(array $aSettings){
+    protected function connectDb(){
+        if($this->isConnected) return;
 
-        parent::__construct($aSettings);
+        $aSettings = $this->aSettings;
 
         $start = microtime(true);
         switch($aSettings['driver']){
@@ -72,5 +67,7 @@ class evxMongoPools extends evxMongo {
         if($qTime > 0.1){
             $this->log('(' . ($qTime) . 's) Connection to ' . $aSettings['server']);
         }
+
+        $this->isConnected = true;
     }
 }

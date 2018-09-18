@@ -20,6 +20,7 @@ class ethplorerController {
     protected $command;
     protected $params = array();
     protected $apiCommands = array('getTxInfo', 'getTokenHistory', 'getAddressTransactions', 'getAddressInfo', 'getTokenInfo', 'getAddressHistory', 'getTopTokens', 'getTop', 'getTokenHistoryGrouped', 'getPriceHistoryGrouped', 'getTokenPriceHistoryGrouped', 'getAddressPriceHistoryGrouped', 'getBlockTransactions', 'getLastBlock', 'getPoolAddresses', 'getPoolLastTransactions', 'getPoolLastOperations');
+    protected $apiPostCommands = array('createPool', 'deletePool', 'addPoolAddresses', 'deletePoolAddresses', 'clearPoolAddresses');
     protected $defaults;
     protected $startTime;
     protected $cacheState = '';
@@ -78,19 +79,28 @@ class ethplorerController {
         return (FALSE !== $result) && (!is_null($result)) ? $result : $default;
     }
 
-    public function sendResult(array $result){
+    public function getPostRequest($name, $default = NULL){
+        $result = filter_input(INPUT_POST, $name);
+        return (FALSE !== $result) && (!is_null($result)) ? $result : $default;
+    }
+
+    public function sendResult(array $result, $statusCode = 200){
+        if($this->getRequest('debugId')){
+            $result['debug'] = $this->db->getDebugData();
+        }
+        http_response_code($statusCode);
         echo json_encode($result, JSON_UNESCAPED_SLASHES);
         die();
     }
 
-    public function sendError($code, $message){
+    public function sendError($code, $message, $statusCode = 200){
         $result = array(
             'error' => array(
                 'code' => $code,
                 'message' => $message
             )
         );
-        $this->sendResult($result);
+        $this->sendResult($result, $statusCode);
     }
 
     /**
@@ -101,23 +111,37 @@ class ethplorerController {
     public function run(){
         $result = FALSE;
         $command = $this->getCommand();
-        if($command && in_array($command, $this->apiCommands) && method_exists($this, $command)){
-            $key = $this->getRequest('apiKey', FALSE);
+        if($command && (in_array($command, $this->apiCommands) || in_array($command, $this->apiPostCommands)) && method_exists($this, $command)){
+            $key = in_array($command, $this->apiCommands) ? $this->getRequest('apiKey', FALSE) : $this->getPostRequest('apiKey', FALSE);
             if(!$key || !$this->db->checkAPIkey($key)){
-                $this->sendError(1, 'Invalid API key');
+                $this->sendError(1, 'Invalid API key', 403);
             }
             $this->defaults = $this->db->getAPIKeyDefaults($key, $command);
 
-            $timestamp = $this->getRequest('timestamp', FALSE);
+            if($this->db->isSuspendedAPIKey($key)){
+                $this->sendError(133, 'API key temporary suspended. Contact support.', 403);
+            }
+            
+            if(in_array($command, $this->apiPostCommands)){
+                // @todo: Temporary solution, special key property will be used later
+                if($key == "freekey"){
+                    $this->sendError(1, 'Invalid API key', 403);
+                }
+                $result = call_user_func(array($this, $command));
+                return $result;
+            }
 
-            if(FALSE !== $timestamp){
+            $timestamp = $this->getRequest('ts', FALSE);
+            $needCache = (FALSE !== $timestamp) || ($command === 'getAddressHistory');
+
+            if($needCache){
                 $cacheId = 'API-' . $command  . '-' . md5($_SERVER["REQUEST_URI"]);
                 $oCache = $this->db->getCache();
                 $result = $oCache->get($cacheId, FALSE, TRUE, 15);
             }
             if(!$result){
                 $result = call_user_func(array($this, $command));
-                if((FALSE !== $timestamp) && $cacheId && (FALSE !== $result)){
+                if($needCache && $cacheId && (FALSE !== $result)){
                     $oCache->save($cacheId, $result);
                 }
             }
@@ -167,6 +191,7 @@ class ethplorerController {
         $address = $this->getParam(0, '');
         $address = strtolower($address);
         $onlyToken = $this->getRequest('token', FALSE);
+        $showETHTotals = !!$this->getRequest('showETHTotals', FALSE);
         if((FALSE === $address)){
             $this->sendError(103, 'Missing address');
         }
@@ -174,18 +199,26 @@ class ethplorerController {
         if(!$this->db->isValidAddress($address) || ($onlyToken && !$this->db->isValidAddress($onlyToken))){
             $this->sendError(104, 'Invalid address format');
         }
+        $balance = $this->db->getBalance($address);
         $result = array(
             'address' => $address,
             'ETH' => array(
-                'balance'   => $this->db->getBalance($address),
-                'totalIn'   => 0,
-                'totalOut'  => 0,
+                'balance'   => $balance
             ),
             'countTxs' => $this->db->countTransactions($address)
         );
-        if($result['countTxs'] && ($result['countTxs'] < 10000)){
-            $out = $this->db->getEtherTotalOut($address);
-            $result['ETH']['totalIn'] = $result['ETH']['balance'] + $out;
+        if($showETHTotals){
+            $in = 0;
+            $out = 0;
+            if($result['countTxs']){
+                $in = $this->db->getEtherTotalIn($address, FALSE, !$this->db->isHighloadedAddress($address));
+                $out = $in - $balance;
+                if($out < 0){
+                    $in = $balance;
+                    $out = 0;
+                }
+            }
+            $result['ETH']['totalIn'] = $in;
             $result['ETH']['totalOut'] = $out;
         }
         if($contract = $this->db->getContract($address)){
@@ -210,7 +243,7 @@ class ethplorerController {
                         continue;
                     }
                 }
-                $token = $this->db->getToken($balance['contract']);
+                $token = $this->db->getToken($balance['contract'], TRUE);
                 if($token){
                     unset($token['checked']);
                     unset($token['txsCount']);
@@ -272,7 +305,7 @@ class ethplorerController {
         $operations = $this->db->getOperations($txHash);
         if(is_array($operations) && !empty($operations)){
             foreach($operations as $i => $operation){
-                $token = $this->db->getToken($operation['contract']);
+                $token = $this->db->getToken($operation['contract'], TRUE);
                 if($token && is_array($token)){
                     unset($token['checked']);
                     unset($token['txsCount']);
@@ -325,8 +358,9 @@ class ethplorerController {
 
         $maxLimit = is_array($this->defaults) && isset($this->defaults['limit']) ? $this->defaults['limit'] : 50;
         $limit = max(min(abs((int)$this->getRequest('limit', 10)), $maxLimit), 1);
+        $timestamp = $this->_getTimestampParam();
         $showZeroValues = !!$this->getRequest('showZeroValues', FALSE);
-        $result = $this->db->getTransactions($address, $limit, $showZeroValues);
+        $result = $this->db->getTransactions($address, $limit, $timestamp, $showZeroValues);
 
         $this->sendResult($result);
     }
@@ -447,7 +481,7 @@ class ethplorerController {
      * @return array
      */
     public function getTokenPriceHistoryGrouped(){
-        $period = min(abs((int)$this->getRequest('period', 365)), 365);
+        $period = abs((int)$this->getRequest('period', 365));
         if($period <= 0) $period = 365;
         $address = $this->getParam(0, FALSE);
         if($address){
@@ -474,7 +508,8 @@ class ethplorerController {
                 $this->sendError(104, 'Invalid address format');
             }
         }
-        $result = array('history' => $this->db->getAddressPriceHistoryGrouped($address));
+        $withEth = (isset($_GET["withEth"]) && (bool)$_GET["withEth"]) ? TRUE : FALSE;
+        $result = array('history' => $this->db->getAddressPriceHistoryGrouped($address, FALSE, $withEth));
         if(isset($result['history']['cache'])) $this->cacheState = $result['history']['cache'];
         else $this->cacheState = '';
         $this->sendResult($result);
@@ -492,6 +527,56 @@ class ethplorerController {
         $this->sendResult($result);
     }
 
+    public function createPool(){
+        $apiKey = $this->getPostRequest('apiKey');
+        $addresses = $this->getPostRequest('addresses');
+        $response = $this->db->createPool($apiKey, $addresses);
+        if (isset($response['error'])) {
+            $this->sendError(105, 'Error creating pool', 400);
+        }
+        $this->sendResult($response);
+    }
+
+    public function deletePool(){
+        $poolId = $this->getPostRequest('poolId');
+        if (!$poolId) {
+            $this->sendError(106, 'Invalid pool id', 400);
+        }
+        $response = $this->db->deletePool($poolId);
+        if (isset($response['error'])) {
+            $this->sendError(110, 'Error deleting pool', 400);
+        }
+        $this->sendResult($response);
+    }
+
+    public function addPoolAddresses(){
+        $this->updatePool('addPoolAddresses');
+    }
+
+    public function deletePoolAddresses(){
+        $this->updatePool('deletePoolAddresses');
+    }
+
+    public function clearPoolAddresses(){
+        $this->updatePool('clearPoolAddresses');
+    }
+
+    public function updatePool($method = FALSE){
+        if(!$method){
+            $this->sendError(107, 'Invalid method name', 400);
+        }
+        $poolId = $this->getPostRequest('poolId');
+        if(!$poolId){
+            $this->sendError(106, 'Invalid pool id', 400);
+        }
+        $addresses = $this->getPostRequest('addresses');
+        $response = $this->db->updatePool($method, $poolId, $addresses);
+        if (isset($response['error'])) {
+            $this->sendError(109, 'Error update the pool', 400);
+        }
+        $this->sendResult($response);
+    }
+
     /**
      * /getPoolAddresses method implementation.
      *
@@ -499,11 +584,11 @@ class ethplorerController {
      * @return array
      */
     public function getPoolAddresses(){
-        $result = array('addresses' => array());
-        $poolId = $this->getRequest('poolId', FALSE);
-        if($poolId){
-            $result = array('addresses' => $this->db->getPoolAddresses($poolId));
+        $poolId = $this->getParam(0, FALSE);
+        if (!$poolId) {
+            $this->sendError(106, 'Invalid pool id', 400);
         }
+        $result = array('addresses' => $this->db->getPoolAddresses($poolId));
         $this->sendResult($result);
     }
 
@@ -513,13 +598,13 @@ class ethplorerController {
      * @undocumented
      * @return array
      */
-    public function getPoolLastTransactions(){
-        $result = array();
-        $poolId = $this->getRequest('poolId', FALSE);
-        $period = max(min(abs((int)$this->getRequest('period', 86400)), 864000), 1);
-        if($poolId){
-            $result = $this->db->getPoolLastTransactions($poolId, $period);
+    public function getPoolLastTransactions() {
+        $poolId = $this->getParam(1, FALSE);
+        if (!$poolId) {
+            $this->sendError(106, 'Invalid pool id', 400);
         }
+        $period = max(min(abs((int)$this->getRequest('period', 600)), 864000), 1);
+        $result = $this->db->getPoolLastTransactions($poolId, $period);
         $this->sendResult($result);
     }
 
@@ -529,13 +614,13 @@ class ethplorerController {
      * @undocumented
      * @return array
      */
-    public function getPoolLastOperations(){
-        $result = array();
-        $poolId = $this->getRequest('poolId', FALSE);
-        $period = max(min(abs((int)$this->getRequest('period', 86400)), 864000), 1);
-        if($poolId){
-            $result = $this->db->getPoolLastOperations($poolId, $period);
+    public function getPoolLastOperations() {
+        $poolId = $this->getParam(0, FALSE);
+        if (!$poolId) {
+            $this->sendError(106, 'Invalid pool id', 400);
         }
+        $period = max(min(abs((int)$this->getRequest('period', 600)), 864000), 1);
+        $result = $this->db->getPoolLastOperations($poolId, $period);
         $this->sendResult($result);
     }
 
@@ -562,12 +647,10 @@ class ethplorerController {
         $options = array(
             'type'      => $this->getRequest('type', FALSE),
             'limit'     => max(min(abs((int)$this->getRequest('limit', 10)), $maxLimit), 1),
+            'timestamp' => $this->_getTimestampParam()
         );
         if(FALSE !== $address){
             $options['address'] = $address;
-        }
-        if(FALSE !== $this->getRequest('timestamp', FALSE)){
-            $options['timestamp'] = (int)$this->getRequest('timestamp');
         }
         if($addressHistoryMode){
             $token = $this->getRequest('token', FALSE);
@@ -605,6 +688,18 @@ class ethplorerController {
             }
         }
         return $result;
+    }
+
+    protected function _getTimestampParam(){
+        $timestamp = (int)$this->getRequest('timestamp', 0);
+        if($timestamp > 0){
+            $maxPeriod = is_array($this->defaults) && isset($this->defaults['maxPeriod']) ? $this->defaults['maxPeriod'] : 2592000;
+            if((time() - $timestamp) > $maxPeriod){
+                $this->sendError(108, 'Invalid timestamp');
+            }
+            return $timestamp;
+        }
+        return 0;
     }
 
     /**

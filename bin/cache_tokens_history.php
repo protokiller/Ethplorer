@@ -22,11 +22,9 @@ $startTime = microtime(TRUE);
 echo "\n[".date("Y-m-d H:i")."], Started.";
 
 $es = Ethplorer::db($aConfig);
-$es->createProcessLock('priceHistory.lock', 1800);
-foreach($aConfig['updateRates'] as $address){
-    $es->getCache()->clearLocalCache();
-    $es->getTokenPriceHistory($address, 0, 'hourly', TRUE);
-}
+$es->createProcessLock('tokens.history.lock', 600);
+
+$es->getTokenHistoryGrouped(90, FALSE, 'daily', 1800, FALSE, TRUE);
 
 $ms = round(microtime(TRUE) - $startTime, 4);
 echo "\n[".date("Y-m-d H:i")."], Finished, {$ms} s.";

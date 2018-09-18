@@ -25,19 +25,14 @@ class evxMongoScanner extends evxMongo {
      *
      * @param array $aSettings
      */
-    public static function init(array $aSettings = array()){
-        self::$oInstance = new evxMongoScanner($aSettings);
+    public static function init(array $aSettings = array(), $useOperations2 = FALSE){
+        self::$oInstance = new evxMongoScanner($aSettings, $useOperations2);
     }
 
-    /**
-     * Constructor.
-     *
-     * @param array $aSettings
-     * @throws \Exception
-     */
-    protected function __construct(array $aSettings){
+    protected function connectDb(){
+        if($this->isConnected) return;
 
-        parent::__construct($aSettings);
+        $aSettings = $this->aSettings;
 
         $start = microtime(true);
         switch($aSettings['driver']){
@@ -54,8 +49,10 @@ class evxMongoScanner extends evxMongo {
                     'blocks'       => $oDB->blocks,
                     'contracts'    => $oDB->contracts,
                     'tokens'       => $oDB->tokens,
-                    'operations'   => $oDB->tokenOperations,
+                    'operations'   => $this->useOperations2 ? $oDB->tokenOperations2 : $oDB->tokenOperations,
+                    'operations2'  => $oDB->tokenOperations2,
                     'balances'     => $oDB->tokenBalances,
+                    'ethBalances'  => $oDB->ethBalances,
                     'addressCache' => $oDB->cacheAddressData
                 );
                 break;
@@ -67,8 +64,10 @@ class evxMongoScanner extends evxMongo {
                     'blocks'       => "blocks",
                     'contracts'    => "contracts",
                     'tokens'       => "tokens",
-                    'operations'   => "tokenOperations",
+                    'operations'   => $this->useOperations2 ? "tokenOperations2" : "tokenOperations",
+                    'operations2'  => "tokenOperations2",
                     'balances'     => "tokenBalances",
+                    'ethBalances'  => "ethBalances",
                     'addressCache' => "cacheAddressData"
                 );
                 break;                
@@ -80,5 +79,7 @@ class evxMongoScanner extends evxMongo {
         if($qTime > 0.1){
             $this->log('(' . ($qTime) . 's) Connection to ' . $aSettings['server']);
         }
+        $this->isConnected = true;
     }
+    
 }

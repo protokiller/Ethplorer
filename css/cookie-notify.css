@@ -1,0 +1,123 @@
+#cookie-notification {
+    font-family: 'Open Sans', sans-serif;
+    font-size: 13px;
+    position: fixed;
+    z-index: 1000;
+    width: 100%;
+    bottom: 0;
+    padding: 10px 0;
+    background: #eaeaea;
+}
+
+#cookie-notification span span {
+    white-space: nowrap;
+}
+
+#cookie-notification span:first-child {
+    padding-bottom: 7px;
+    display: inline-block;
+    margin-right: 10px;
+}
+
+@media (min-width: 992px) {
+    #cookie-notification .cn-container {
+        width: 970px;
+    }
+}
+
+@media (min-width: 768px) {
+    #cookie-notification .cn-container {
+        width: 750px;
+    }
+}
+
+@media (min-width: 992px) {
+    #cookie-notification .cn-container {
+        width: 970px;
+    }
+}
+
+@media (min-width: 1200px) {
+    #cookie-notification .cn-container {
+        width: 1170px;
+    }
+}
+
+#cookie-notification .cn-container {
+    padding-right: 15px;
+    padding-left: 15px;
+    margin-right: auto;
+    margin-left: auto;
+}
+#cookie-notification .text-center {
+    text-align: center;
+}
+
+#cookie-notification .cn-btn-group-lg > .cn-btn, #cookie-notification .cn-btn-lg {
+    padding: 10px 16px;
+    font-size: 18px;
+    line-height: 1.3333333;
+    border-radius: 6px;
+}
+
+#cookie-notification .cn-btn-primary {
+    color: #fff;
+    background-color: #337ab7;
+    border-color: #2e6da4;
+}
+
+#cookie-notification .cn-btn-primary:hover {
+    color: #fff;
+    background-color: #2c679b;
+    border-color: #2e6da4;
+}
+
+#cookie-notification .cn-btn-block {
+    display: block;
+}
+
+#cookie-notification .cn-btn {
+    display: inline-block;
+    text-decoration: none;
+    padding: 6px 12px;
+    margin-bottom: 0;
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.42857143;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: middle;
+    -ms-touch-action: manipulation;
+    touch-action: manipulation;
+    cursor: pointer;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    background-image: none;
+    border: 1px solid transparent;
+    border-radius: 4px;
+}
+
+#cookie-notification .visible-xs-inline-block {
+    display: none !important;
+}
+
+@media (max-width: 767px) {
+    #cookie-notification .hidden-xs {
+        display: none !important;
+    }
+
+    #cookie-notification .visible-xs-inline-block {
+        display: inline-block !important;
+    }
+
+    #cookie-notification .cn-btn-block {
+        display: block !important;
+    }
+}
+
+#cookie-notification a:not(.cn-btn) {
+    color: #47C2FF !important;
+    display: inline-block;
+}

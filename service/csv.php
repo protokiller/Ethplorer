@@ -21,6 +21,8 @@ $es = Ethplorer::db(require_once dirname(__FILE__) . '/config.php');
 
 $data = isset($_GET["data"]) ? $_GET["data"] : false;
 $hash = isset($_GET["hash"]) ? $_GET["hash"] : false;
+$showTx = isset($_GET["showTx"]) ? $_GET["showTx"] : false;
+if($showTx) $es->setShowTx($showTx);
 
 // Allow cross-domain ajax requests
 // header('Access-Control-Allow-Origin: *');

@@ -63,12 +63,25 @@ class evxMongo {
     protected $logFile;
 
     /**
+     * Mongo profiler
+     *
+     * @var array
+     */
+    protected $aProfile = array();
+
+    protected $aSettings = array();
+    
+    protected $isConnected = false;
+
+    protected $useOperations2 = FALSE;
+
+    /**
      * Constructor.
      *
      * @param array $aSettings
      * @throws \Exception
      */
-    protected function __construct(array $aSettings){
+    protected function __construct(array $aSettings, $useOperations2 = FALSE){
         
         $this->logFile = __DIR__ . '/../log/mongo-profile.log';
         // Default config
@@ -78,6 +91,9 @@ class evxMongo {
             'dbName' => 'ethplorer',
             'prefix' => 'everex.'
         );
+
+        $this->aSettings = $aSettings;
+        $this->useOperations2 = $useOperations2;
         $this->dbName = $aSettings['dbName'];
         $this->driver = $aSettings['driver'];
     }
@@ -117,9 +133,11 @@ class evxMongo {
      * @param int $skip
      * @return array
      */
-    public function find($collection, array $aSearch = array(), $sort = false, $limit = false, $skip = false, $fields = false){
+    public function find($collection, array $aSearch = array(), $sort = false, $limit = false, $skip = false, $fields = false, $hint = false){
+        $this->connectDb();
         $aResult = false;
         $start = microtime(true);
+        $aOptions = array();
         switch($this->driver){
             case 'fake':
                 $aResult = array();
@@ -130,21 +148,23 @@ class evxMongo {
                 if(is_array($sort)){
                     $cursor = $cursor->sort($sort);
                 }
-                if(false !== $skip){
+                if(false !== $skip && $skip > 0){
                     $cursor = $cursor->skip($skip);
                 }
                 if(false !== $limit){
                     $cursor = $cursor->limit($limit);
                 }
+                if(false !== $hint){
+                    $cursor = $cursor->hint($hint);
+                }
                 $aResult = $cursor;
                 break;
 
             case 'mongodb':
-                $aOptions = array();
                 if(is_array($sort)){
                     $aOptions['sort'] = $sort;
                 }
-                if(false !== $skip){
+                if(false !== $skip && $skip > 0){
                     $aOptions['skip'] = $skip;
                 }
                 if(false !== $limit){
@@ -155,6 +175,9 @@ class evxMongo {
                     foreach($fields as $field){
                         $aOptions['projection'][$field] = 1;
                     }
+                }
+                if(false !== $hint){
+                    $aOptions['hint'] = $hint;
                 }
                 $query = new MongoDB\Driver\Query($aSearch, $aOptions);
                 $cursor = $this->oMongo->executeQuery($this->dbName . '.' . $this->aDBs[$collection], $query);
@@ -169,11 +192,16 @@ class evxMongo {
                  */
                 break;
         }
-        $finish = microtime(true);
-        $qTime = $finish - $start;
-        if($qTime > 1){
-            $this->log('(' . ($qTime) . 's) Find ' . $this->dbName . '.' . $this->aDBs[$collection] . ' > ' . json_encode($aSearch));
+        $aQuery = [
+            'collection' => (string)$this->aDBs[$collection],
+            'find' => $aSearch,
+            'opts' => $aOptions,
+            'time' => round(microtime(true) - $start, 4)
+        ];
+        if($aQuery['time'] > 1){
+            $this->log('(' . ($aQuery['time']) . 's) ' . $aQuery['collection'] . '.find(' . json_encode($aQuery['find']) . ', ' . json_encode($aQuery['opts']) . ')');
         }
+        $this->aProfile[] = $aQuery;
         return $aResult;
     }
 
@@ -185,6 +213,7 @@ class evxMongo {
      * @return int
      */
     public function count($collection, array $aSearch = array(), $limit = FALSE){
+        $this->connectDb();
         $result = false;
         $start = microtime(true);
         $aOptions = array();
@@ -202,7 +231,20 @@ class evxMongo {
             case 'mongodb':
                 $query = new MongoDB\Driver\Query($aSearch, $aOptions);
                 $cursor = $this->oMongo->executeQuery($this->dbName . '.' . $this->aDBs[$collection], $query);
-                $result = iterator_count($cursor);
+                try {
+                    $result = iterator_count($cursor);
+                }catch(\Exception $e){
+                    if(class_exists("Ethplorer")){
+                        Ethplorer::db()->reportException($e, array(
+                            'extra' => array(
+                                'query' => 'count',
+                                'search' => $aSearch,
+                                'options' => $aOptions
+                            )
+                        ));
+                    }
+                    $result = FALSE;
+                }
                 /*
                 $command = new MongoDB\Driver\Command(array("count" => $this->aDBs[$collection], "query" => $aSearch));
                 $count = $this->oMongo->executeCommand($this->dbName, $command);
@@ -217,11 +259,16 @@ class evxMongo {
                 */
                 break;
         }
-        $finish = microtime(true);
-        $qTime = $finish - $start;
-        if($qTime > 1){
-            $this->log('(' . ($qTime) . 's) Count ' . $this->dbName . '.' . $this->aDBs[$collection] . ' > ' . json_encode($aSearch));
+        $aQuery = [
+            'collection' => (string)$this->aDBs[$collection],
+            'count' => $aSearch,
+            'opts' => $aOptions,
+            'time' => round(microtime(true) - $start, 4)
+        ];
+        if($aQuery['time'] > 1){
+            $this->log('(' . ($aQuery['time']) . 's) ' . $aQuery['collection'] . '.count(' . json_encode($aQuery['count']) . ', ' . json_encode($aQuery['opts']) . ')');
         }
+        $this->aProfile[] = $aQuery;
         return $result;
     }
 
@@ -236,8 +283,10 @@ class evxMongo {
      * @return array
      */
     public function aggregate($collection, array $aSearch = array()){
+        $this->connectDb();
         $aResult = false;
         $start = microtime(true);
+        $aOptions = array();
         switch($this->driver){
             case 'fake':
                 $aResult = array();
@@ -255,7 +304,7 @@ class evxMongo {
                     'cursor' => new stdClass,
                 ));
                 $cursor = $this->oMongo->executeCommand($this->dbName, $command);
-                if(count($cursor) > 0){
+                if(@count($cursor) > 0){
                     $aResult['result'] = array();
                     $cursor = new IteratorIterator($cursor);
                     foreach($cursor as $record){
@@ -264,14 +313,32 @@ class evxMongo {
                 }
                 break;
         }
-        $finish = microtime(true);
-        $qTime = $finish - $start;
-        if($qTime > 1){
-            $this->log('(' . ($qTime) . 's) Aggregate ' . $this->dbName . '.' . $this->aDBs[$collection] . ' > ' . json_encode($aSearch));
+        $aQuery = [
+            'collection' => (string)$this->aDBs[$collection],
+            'aggregate' => $aSearch,
+            'opts' => $aOptions,
+            'time' => round(microtime(true) - $start, 4)
+        ];
+        if($aQuery['time'] > 1){
+            $this->log('(' . ($aQuery['time']) . 's) ' . $aQuery['collection'] . '.aggregate(' . json_encode($aQuery['aggregate']) . ')');
         }
+        $this->aProfile[] = $aQuery;
         return $aResult;
     }
 
+    /**
+     * Returns query profiler.
+     *
+     * @return array
+     */
+    public function getQueryProfileData(){
+        return $this->aProfile;
+    }
+
+    public function dbConnected(){
+        return $this->isConnected;
+    }
+    
     /**
      * Singleton implementation.
      *
@@ -289,5 +356,9 @@ class evxMongo {
     protected function log($message){
         $logString = '[' . date('Y-m-d H:i:s') . '] - ' . $message . "\n";
         file_put_contents($this->logFile, $logString, FILE_APPEND);
+    }
+
+    protected function connectDb(){
+        // @todo: throw an exception
     }
 }
