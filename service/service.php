@@ -14,6 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+if(file_exists("_service.php")){
+    require "_service.php";
+}
 
 require dirname(__FILE__) . '/lib/ethplorer.php';
 
@@ -23,6 +26,7 @@ $refresh = isset($_GET["refresh"]) ? $_GET["refresh"] : false;
 $search = isset($_GET["search"]) ? $_GET["search"] : false;
 $adv = isset($_GET["notes"]) ? $_GET["notes"] : false;
 $debugId = isset($_GET["debugId"]) ? $_GET["debugId"] : false;
+$showTx = isset($_GET["showTx"]) ? $_GET["showTx"] : false;
 
 // Allow cross-domain ajax requests
 header('Access-Control-Allow-Origin: *');
@@ -40,6 +44,8 @@ if($debugId){
 if(strlen($search) || (false !== $data)){
 
     $es = Ethplorer::db($aConfig);
+    if($showTx) $es->setShowTx($showTx);
+    //if(isset($aConfig['showTx']) && $aConfig['showTx']) $es->setShowTx($aConfig['showTx']);
 
     if(strlen($search)){
         $result = $es->searchToken($search);
@@ -62,6 +68,9 @@ if(strlen($search) || (false !== $data)){
                             break;
                         case 'filter':
                             $es->setFilter($aPageParams[1]);
+                            break;
+                        case 'showTx':
+                            $es->setShowTx($aPageParams[1]);
                             break;
                     }
                 }
@@ -90,6 +99,10 @@ if($adv){
     header('Access-Control-Allow-Origin: *');
     unset($aConfig['mongo']);
     $result = Ethplorer::db($aConfig)->getActiveNotes();
+}
+
+if($debugId){
+    $result['debug'] = $es->getDebugData();
 }
 
 echo json_encode($result);

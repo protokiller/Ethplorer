@@ -18,7 +18,7 @@ $aConfig = require dirname(__FILE__) . '/service/config.php';
 require dirname(__FILE__) . '/service/lib/ethplorer.php';
 $es = Ethplorer::db(array());
 
-$codeVersion = isset($aConfig['codeVersion']) ? $aConfig['codeVersion'] : "180";
+$codeVersion = isset($aConfig['codeVersion']) ? $aConfig['codeVersion'] : "217";
 
 $error = TRUE;
 $header = "";
@@ -67,7 +67,24 @@ if(isset($_GET['debug']) && $_GET['debug']){
     $debugEnabled = true;
 }
 
+$withEth = false;
+if((isset($_GET['withEth']) && (bool)$_GET['withEth']) || (isset($_GET['witheth']) && (bool)$_GET['witheth'])){
+    $withEth = true;
+}
+
 $hasNotes = isset($aConfig['adv']) && count($aConfig['adv']);
+
+$sentryURL = false;
+if(isset($aConfig['sentry']) && is_array($aConfig['sentry'])){
+    $aSentry = $aConfig['sentry'];
+    $https = isset($aSentry['https']) ? !!$aSentry['https'] : false;
+    $url = isset($aSentry['url']) ? $aSentry['url'] : false;
+    $key = isset($aSentry['key']) ? $aSentry['key'] : false;
+    if($url && $key){
+        $protocol = $https ? "https" : "http";
+        $sentryURL = $protocol . "://" . $key . "@" . $url;
+    }
+}
 
 $csvExport = '';
 if(is_array($rParts) && isset($rParts[2])){
@@ -79,7 +96,7 @@ if(is_array($rParts) && isset($rParts[2])){
     <title>Ethplorer<?php if($header){ echo ": " . $header; } ?></title>
     <link rel="stylesheet" href="https://ajax.googleapis.com/ajax/libs/jqueryui/1.11.4/themes/smoothness/jquery-ui.css">
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">
+    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.0.13/css/all.css" integrity="sha384-DNOHZ68U8hZfKXOrtjWvjxusGo9WQnrNx2sqG0tfsghAvtVlRW3tvkXWZh58N9jp" crossorigin="anonymous">
     <link rel="stylesheet" href="/css/ethplorer.css?v=<?=$codeVersion?>">
 <?php
     // Load extensions CSS
@@ -105,6 +122,7 @@ if(is_array($rParts) && isset($rParts[2])){
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
     <link rel="icon" type="image/png" href="/favicon-32x32.png" sizes="32x32">
     <link rel="icon" type="image/png" href="/favicon-16x16.png" sizes="16x16">
+<?php if($sentryURL):?><script src="/js/raven.min.js"></script><?php endif; ?>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.2/jquery.min.js"></script>
     <script src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.11.4/jquery-ui.min.js"></script>
     <script src="https://www.google.com/jsapi"></script>
@@ -138,7 +156,10 @@ if(is_array($rParts) && isset($rParts[2])){
         var ethplorerWidgetPreload = [
             {
                 method: "getPriceHistoryGrouped",
-                options: {address: '<?php echo $address; ?>'}
+                options: {
+                    address: '<?php echo $address; ?>',
+                    <?php if($withEth) echo "withEth: true"; ?>
+                }
             }
         ];
         </script>
@@ -162,7 +183,8 @@ if(is_array($rParts) && isset($rParts[2])){
                     </form>
                 </ul>
                 <ul class="nav navbar-nav navbar-right" id="topmenu">
-                    <li onclick="document.location.href='/top';">TOP-50</li>
+                    <li onclick="document.location.href='/index';">Index<div class="new-mark">NEW</div></li>
+                    <li onclick="document.location.href='/top';">TOP-50<div class="new-mark">NEW</div></li>
                     <li onclick="document.location.href='/widgets';">Widgets</li>
                     <li onclick="document.location.href='https://github.com/EverexIO/Ethplorer/wiki/Ethplorer-API';">API</li>
                     <li onclick="document.location.href='https://ethplorer.io/#subscribe';">Subscribe</li>
@@ -176,7 +198,7 @@ if(is_array($rParts) && isset($rParts[2])){
             <div id="page-create" class="page">
                 <script async src="//pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"></script>
                 <!-- ethp-links-728x15 -->
-                <ins class="adsbygoogle" data-ad-client="ca-pub-6084233468074023" data-ad-slot="5655598045"></ins>
+                <ins class="adsbygoogle" data-ad-client="ca-pub-9429151221150004" data-ad-slot="2734463808"></ins>
                 <script>
                 (adsbygoogle = window.adsbygoogle || []).push({});
                 </script>
@@ -188,13 +210,26 @@ if(is_array($rParts) && isset($rParts[2])){
                 <?php else: ?>
 
                 <div id="loader" class="text-center">
-                    <div class="timer"></div>
+                    <div class="loader-wrapper">
+                        <div class="dot-loader">
+                            <div class="dot"></div>
+                            <div class="dot"></div>
+                            <div class="dot"></div>
+                        </div>
+                    </div>
                     <div id="searchInProgressText">search in progress...</div>
                 </div>
 
                 <div id="error" class="content-page text-center">
                     <h1 class="text-danger"></h1>
                     <h3 id="error-reason" class="text-danger"></h3>
+                </div>
+
+                <div id="error-with-details" class="content-page text-center">
+                    <div class="ethplorer-panel">
+                        <h3 class="text-danger error-title"></h3>
+                        <div class="error-details"></div>
+                    </div>
                 </div>
 
                 <div>
@@ -262,8 +297,7 @@ if(is_array($rParts) && isset($rParts[2])){
                                 <div class="block-header">
                                     <h3>Internal operations</h3>
                                 </div>
-                                <table class="table">
-                                </table>
+                                <div class="scrollable"><div class="scrollwrapper"><table class="table"></table></div></div>
                             </div>
                         </div>
 
@@ -309,9 +343,17 @@ if(is_array($rParts) && isset($rParts[2])){
                                     <td>Value</td>
                                     <td id="transfer-operation-value" class="list-field"></td>
                                 </tr>
+                                <tr class="blue">
+                                    <td>Value</td>
+                                    <td id="transfer-operation-valueEth" data-type="ether-full" class="list-field"></td>
+                                </tr>
                                 <tr>
                                     <td>Date</td>
                                     <td id="transfer-tx-timestamp" data-type="localdate" class="list-field"></td>
+                                </tr>
+                                <tr>
+                                    <td>Value @ tx date</td>
+                                    <td id="historical-price" data-type="historical-price" class="list-field"></td>
                                 </tr>
                                 <tr>
                                     <td>From</td>
@@ -424,7 +466,7 @@ if(is_array($rParts) && isset($rParts[2])){
                                 </tr>
                                 <tr>
                                     <td>Gas Price</td>
-                                    <td id="transaction-tx-gasPrice" class="list-field" data-type="ether"></td>
+                                    <td id="transaction-tx-gasPrice" class="list-field" data-type="ether-gwei"></td>
                                  </tr>
                                  <tr>
                                     <td>Tx Cost</td>
@@ -512,7 +554,10 @@ if(is_array($rParts) && isset($rParts[2])){
                                     <div id="address-balances-total"></div>
                                 </h3>
                             </div>
-                            <table class="table"></table>
+                            <div class="scrollable"><div class="scrollwrapper"><table class="table"></table></div></div>
+                            <div class="text-center">
+                                <a class="expand-btn">Expand</a>
+                            </div>
                         </div>
                         <div class="block" id="address-chainy-info">
                             <div class="block-header">
@@ -695,7 +740,7 @@ if(is_array($rParts) && isset($rParts[2])){
                 <div class="col-xs-7 col-sm-3">
                     <a href="#"><img src="/images/ethplorerlogowhite400.png" style="max-width: 140px;" alt=""></a>
                     <div>
-                        <div style="color:#eeeeee;">© 2016-2018 <a href="https://everex.one/" target="_blank" class="small-link">Everex</a>
+                        <div style="color:#eeeeee;">© 2016-2018 <a href="https://everex.io/" target="_blank" class="small-link">Everex</a>
                             <br><a href="/privacy" class="small-link">Privacy &amp; Terms</a><br>
                         </div>
                     </div>
@@ -728,6 +773,15 @@ if(is_array($rParts) && isset($rParts[2])){
 </div>
 <div id="qr-code-popup" title="Address QR-Code" style="padding:5px;"><span id="qr-code-address"></span><br/><br/><center><div id="qr-code"></div></center><br/></div>
 <script>
+<?php if($sentryURL):?>
+if('undefined' !== typeof(Raven)){
+    try {
+        Raven.config("<?php echo $sentryURL; ?>").install();
+    } catch(e) {
+        console.log(e.message);
+    }
+}
+<?php endif; ?>
 $(document).ready(function(){
     $.fn.bootstrapBtn = $.fn.button.noConflict();
     <?php if($debugEnabled): ?>
@@ -764,5 +818,6 @@ if(Ethplorer.Config.fb){
     fbq('track', 'PageView');
 }
 <?php if(isset($aConfig['scriptAddon'])) echo $aConfig['scriptAddon']; ?></script>
+<script src="/js/cookie-notify.js" async></script>
 </body>
 </html>

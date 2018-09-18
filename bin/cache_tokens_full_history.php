@@ -18,8 +18,14 @@
 require dirname(__FILE__) . '/../service/lib/ethplorer.php';
 $aConfig = require_once dirname(__FILE__) . '/../service/config.php';
 
-$es = Ethplorer::db($aConfig);
-$es->createProcessLock('tokens.full.history.lock');
+$startTime = microtime(TRUE);
+echo "\n[".date("Y-m-d H:i")."], Started.";
 
-$es->getTokenFullHistoryGrouped();
+$es = Ethplorer::db($aConfig);
+$es->createProcessLock('tokens.full.history.lock', 1800);
+
+$es->getTokenFullHistoryGrouped(TRUE);
 $es->getTokenCapHistory(0, TRUE);
+
+$ms = round(microtime(TRUE) - $startTime, 4);
+echo "\n[".date("Y-m-d H:i")."], Finished, {$ms} s.";

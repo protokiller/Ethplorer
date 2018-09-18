@@ -15,12 +15,20 @@
  * limitations under the License.
  */
 
+ini_set('memory_limit', '1G');
+
 require dirname(__FILE__) . '/../service/lib/ethplorer.php';
 $aConfig = require_once dirname(__FILE__) . '/../service/config.php';
 
+$startTime = microtime(TRUE);
+echo "\n[".date("Y-m-d H:i")."], Started.";
+
 $es = Ethplorer::db($aConfig);
-$es->createProcessLock('priceHistory.lock');
+$es->createProcessLock('priceHistory.lock', 1800);
 foreach($aConfig['updateRates'] as $address){
     $es->getCache()->clearLocalCache();
     $es->getTokenPriceHistory($address, 0, 'hourly', TRUE);
 }
+
+$ms = round(microtime(TRUE) - $startTime, 4);
+echo "\n[".date("Y-m-d H:i")."], Finished, {$ms} s.";

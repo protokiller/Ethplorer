@@ -48,6 +48,11 @@ EthplorerNote = {
         EthplorerNote.container.show();
         
         var note = EthplorerNote.notes[EthplorerNote.next];
+        if(note.warning){
+            EthplorerNote.container.addClass('warning');
+        }else{
+            EthplorerNote.container.removeClass('warning');
+        }
         EthplorerNote.inner.fadeOut(500, function(_data){
             return function(){
                 var link = "/go.php?link=" + _data.link;

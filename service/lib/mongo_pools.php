@@ -29,15 +29,10 @@ class evxMongoPools extends evxMongo {
         self::$oInstance = new evxMongoPools($aSettings);
     }
 
-    /**
-     * Constructor.
-     *
-     * @param array $aSettings
-     * @throws \Exception
-     */
-    protected function __construct(array $aSettings){
+    protected function connectDb(){
+        if($this->isConnected) return;
 
-        parent::__construct($aSettings);
+        $aSettings = $this->aSettings;
 
         $start = microtime(true);
         switch($aSettings['driver']){
@@ -51,8 +46,8 @@ class evxMongoPools extends evxMongo {
                 $oDB = $this->oMongo->{$this->dbName};
                 $this->aDBs = array(
                     'pools'        => $oDB->pools,
-                    'transactions' => $oDB->transactions,
-                    'operations'   => $oDB->operations
+                    'transactions' => $oDB->monitor_transactions,
+                    'operations'   => $oDB->monitor_operations
                 );
                 break;
             // php version 5.6, 7.x use mongodb extension
@@ -60,8 +55,8 @@ class evxMongoPools extends evxMongo {
                 $this->oMongo = new MongoDB\Driver\Manager($aSettings['server']);
                 $this->aDBs = array(
                     'pools'        => "pools",
-                    'transactions' => "transactions",
-                    'operations'   => "operations"
+                    'transactions' => "monitor_transactions",
+                    'operations'   => "monitor_operations"
                 );
                 break;                
             default:
@@ -72,5 +67,7 @@ class evxMongoPools extends evxMongo {
         if($qTime > 0.1){
             $this->log('(' . ($qTime) . 's) Connection to ' . $aSettings['server']);
         }
+
+        $this->isConnected = true;
     }
 }
